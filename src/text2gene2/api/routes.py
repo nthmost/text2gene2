@@ -8,6 +8,7 @@ from fastapi.templating import Jinja2Templates
 from text2gene2.lvg import get_lvg
 from text2gene2.models import CitationTable, LVGResult
 from text2gene2.pipeline import query_variant
+from text2gene2.pipeline.validate import validate_citations
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -39,10 +40,19 @@ async def search_page(request: Request, hgvs: str = ""):
 # ── JSON API ─────────────────────────────────────────────────────────────────
 
 @router.get("/api/v2/hgvs2pmid/{hgvs_text:path}", response_model=CitationTable)
-async def hgvs2pmid(hgvs_text: str) -> CitationTable:
-    """Full pipeline: HGVS → PMIDs from all sources."""
+async def hgvs2pmid(hgvs_text: str, validate: bool = False) -> CitationTable:
+    """
+    Full pipeline: HGVS → PMIDs from all sources.
+
+    Pass `?validate=true` to fetch abstracts and tier results as
+    confirmed / probable / unverified based on variant mention in text.
+    Adds ~2-5s latency for the abstract fetch.
+    """
     try:
-        return await query_variant(hgvs_text)
+        table = await query_variant(hgvs_text)
+        if validate:
+            table = await validate_citations(table)
+        return table
     except Exception as e:
         log.exception("Pipeline error")
         raise HTTPException(status_code=500, detail=str(e))

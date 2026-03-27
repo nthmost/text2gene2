@@ -52,6 +52,8 @@ class Citation(BaseModel):
     journal: str | None = None
     year: int | None = None
     doi: str | None = None
+    # Set by pipeline/validate.py — "confirmed" | "probable" | "unverified"
+    validation_tier: str | None = None
 
     @property
     def confidence(self) -> int:

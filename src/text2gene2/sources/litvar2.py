@@ -12,9 +12,14 @@ API: https://www.ncbi.nlm.nih.gov/research/litvar2-api/
 No API key required. No documented rate limit — we self-limit to 5 req/sec.
 """
 import logging
+import re
 from urllib.parse import quote
 
 import httpx
+
+# A meaningful short protein/coding change must contain at least one digit
+# (position) and at least one letter. "p." or "p.(" alone is not meaningful.
+_MEANINGFUL_RE = re.compile(r"[A-Za-z].*\d|\d.*[A-Za-z]")
 
 from text2gene2.cache import cache_get, cache_set
 from text2gene2.config import settings
@@ -78,15 +83,20 @@ class LitVar2Source(PMIDSource):
             queries = [lvg.input_hgvs]
             if lvg.gene_symbol:
                 for p in lvg.hgvs_p[:2]:
-                    # Strip accession prefix and simplify: "NP_xxx:p.Q1756Pfs*74" → "BRCA1 p.Q1756Pfs"
                     short_p = p.split(":")[-1] if ":" in p else p
-                    # Trim frameshift/nonsense suffix (everything after the AA change)
-                    short_p = short_p.split("*")[0].split("Ter")[0].rstrip("(")
-                    queries.append(f"{lvg.gene_symbol} {short_p}")
+                    # Trim frameshift/nonsense suffix after the AA change position.
+                    # But stop-codon extensions like p.(*553Cext*40) start with *,
+                    # so splitting on * leaves "p.(" — meaningless. Guard against this.
+                    short_p = short_p.split("*")[0].split("Ter")[0].rstrip("(").rstrip(".")
+                    if _MEANINGFUL_RE.search(short_p):
+                        queries.append(f"{lvg.gene_symbol} {short_p}")
+                    else:
+                        log.debug("LitVar2: skipping degenerate protein query %r", short_p)
                 # Also try gene + coding change (useful for intronic/non-coding variants)
                 for c in lvg.hgvs_c[:1]:
                     short_c = c.split(":")[-1] if ":" in c else c
-                    queries.append(f"{lvg.gene_symbol} {short_c}")
+                    if _MEANINGFUL_RE.search(short_c):
+                        queries.append(f"{lvg.gene_symbol} {short_c}")
 
             for q in queries:
                 found = await _autocomplete(q, client)
