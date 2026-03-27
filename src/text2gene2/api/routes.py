@@ -20,12 +20,12 @@ templates = Jinja2Templates(directory=str(_templates_dir))
 
 @router.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+    return templates.TemplateResponse(request=request, name="index.html")
 
 
 @router.get("/search", response_class=HTMLResponse)
 async def search_page(request: Request, hgvs: str = ""):
-    ctx: dict = {"request": request, "hgvs": hgvs, "result": None, "error": None}
+    ctx: dict = {"hgvs": hgvs, "result": None, "error": None}
     if hgvs:
         try:
             table = await query_variant(hgvs.strip())
@@ -33,7 +33,7 @@ async def search_page(request: Request, hgvs: str = ""):
         except Exception as e:
             log.exception("Pipeline error for %s", hgvs)
             ctx["error"] = str(e)
-    return templates.TemplateResponse("search.html", ctx)
+    return templates.TemplateResponse(request=request, name="search.html", context=ctx)
 
 
 # ── JSON API ─────────────────────────────────────────────────────────────────
