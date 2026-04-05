@@ -112,10 +112,13 @@
         <div style="font-size:0.75rem; color:#6c757d;">PMIDs</div>
       </div>
       {% if result.queries.get(source) %}
-      <div style="margin-top:0.5rem; font-size:0.7rem; color:#6c757d; word-break:break-all;
-                  border-top:1px solid #f1f3f5; padding-top:0.4rem;">
-        <span style="font-weight:600;">Query:</span> {{ result.queries[source] }}
-      </div>
+      <details style="margin-top:0.5rem; border-top:1px solid #f1f3f5; padding-top:0.4rem;">
+        <summary style="font-size:0.7rem; color:#6c757d; cursor:pointer;">Query</summary>
+        <div style="font-size:0.65rem; color:#6c757d; word-break:break-all;
+                    margin-top:0.3rem; font-family:monospace; line-height:1.4;">
+          {{ result.queries[source] }}
+        </div>
+      </details>
       {% endif %}
     </div>
     {% endfor %}
