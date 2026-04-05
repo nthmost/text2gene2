@@ -1,16 +1,20 @@
+import asyncio
+import json
 import logging
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
+from starlette.responses import StreamingResponse
 from fastapi.templating import Jinja2Templates
 
 from text2gene2.lvg import get_lvg
-from text2gene2.models import CitationTable, LVGResult
+from text2gene2.models import CitationTable, Citation, LVGResult, Source, SourceResult
 from text2gene2.pipeline import query_variant
 from text2gene2.pipeline.enrich import enrich_citations
 from text2gene2.pipeline.expand import expand_variant, get_gene_synonyms
 from text2gene2.pipeline.validate import validate_citations
+from text2gene2.sources import ClinVarSource, EuropePMCSource, GoogleCSESource, LitVar2Source
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -40,22 +44,105 @@ async def index(request: Request):
 
 @router.get("/search", response_class=HTMLResponse)
 async def search_page(request: Request, hgvs: str = ""):
-    ctx: dict = {"hgvs": hgvs, "result": None, "error": None,
-                 "expansion": None, "gene_synonyms": None}
-    if hgvs:
+    """Render the search page shell. Results stream in via SSE."""
+    return templates.TemplateResponse(
+        request=request, name="search.html", context={"hgvs": hgvs},
+    )
+
+
+def _sse(event: str, data: dict) -> str:
+    """Format a Server-Sent Event."""
+    return f"event: {event}\ndata: {json.dumps(data)}\n\n"
+
+
+_SOURCES = [
+    LitVar2Source(),
+    ClinVarSource(),
+    GoogleCSESource(),
+    EuropePMCSource(),
+]
+
+
+@router.get("/api/v2/stream/{hgvs_text:path}")
+async def stream_search(hgvs_text: str):
+    """SSE endpoint: streams pipeline results as they complete."""
+
+    async def event_generator():
+        hgvs = hgvs_text.strip()
+
+        # Step 1: LVG expansion
         try:
-            table = await query_variant(hgvs.strip())
-            table = await enrich_citations(table)
-            # Build expansion info for display
-            if table.lvg:
-                ctx["expansion"] = expand_variant(table.lvg)
-                if table.lvg.gene_symbol:
-                    ctx["gene_synonyms"] = await get_gene_synonyms(table.lvg.gene_symbol)
-            ctx["result"] = table
+            lvg = await get_lvg(hgvs)
         except Exception as e:
-            log.exception("Pipeline error for %s", hgvs)
-            ctx["error"] = str(e)
-    return templates.TemplateResponse(request=request, name="search.html", context=ctx)
+            yield _sse("error", {"message": f"LVG error: {e}"})
+            yield _sse("done", {})
+            return
+
+        lvg_data = lvg.model_dump()
+        yield _sse("lvg", lvg_data)
+
+        # Step 2: Query expansion
+        exp = expand_variant(lvg)
+        gene_syns = []
+        if lvg.gene_symbol:
+            gene_syns = await get_gene_synonyms(lvg.gene_symbol)
+        yield _sse("expansion", {
+            "gene_symbol": exp.gene_symbol,
+            "coding_short": exp.coding_short,
+            "protein_short": exp.protein_short,
+            "protein_1letter": exp.protein_1letter,
+            "genomic_short": exp.genomic_short,
+            "slang": exp.slang,
+            "rsids": exp.rsids,
+            "all_search_forms": exp.all_search_forms,
+            "gene_synonyms": gene_syns,
+        })
+
+        # Step 3: Fan out to sources — stream each as it completes
+        all_results: list[SourceResult] = []
+
+        async def run_source(source):
+            try:
+                return await source.query(lvg)
+            except Exception as e:
+                log.warning("Source %s failed: %s", source.source, e)
+                return SourceResult(source=source.source, pmids=[], error=str(e))
+
+        tasks = {asyncio.create_task(run_source(s)): s for s in _SOURCES}
+
+        for coro in asyncio.as_completed(tasks):
+            result = await coro
+            all_results.append(result)
+            yield _sse("source", {
+                "source": result.source.value,
+                "pmids": result.pmids,
+                "error": result.error,
+                "cached": result.cached,
+                "query_used": result.query_used,
+                "pmid_provenance": {str(k): v for k, v in result.pmid_provenance.items()},
+            })
+
+        # Step 4: Merge and enrich
+        table = CitationTable.from_source_results(hgvs, lvg, all_results)
+        table = await enrich_citations(table)
+
+        # Stream final citations
+        citations_data = [c.model_dump() for c in table.citations]
+        # Convert Source enums to strings for JSON
+        for cd in citations_data:
+            cd["sources"] = [s.value if hasattr(s, "value") else s for s in cd["sources"]]
+            cd["found_by"] = {
+                (k.value if hasattr(k, "value") else k): v
+                for k, v in cd["found_by"].items()
+            }
+        yield _sse("citations", {"citations": citations_data, "total": len(table.citations)})
+        yield _sse("done", {})
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 # ── JSON API ─────────────────────────────────────────────────────────────────

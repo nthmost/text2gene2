@@ -168,6 +168,21 @@
       border-left: 3px solid #dee2e6;
       padding-left: 0.75rem;
     }
+    .citation-provenance {
+      font-size: 0.75rem;
+      color: #6c757d;
+      margin-top: 0.4rem;
+      padding-top: 0.35rem;
+      border-top: 1px dashed #e9ecef;
+    }
+    .prov-tag {
+      display: inline-block;
+      padding: 0.1rem 0.4rem;
+      border-radius: 3px;
+      font-size: 0.7rem;
+      margin-right: 0.3rem;
+      font-family: monospace;
+    }
 
     .tier-badge {
       display: inline-block;
@@ -203,6 +218,15 @@
       background: #fff7ed;
       border: 1px solid #fed7aa;
     }
+
+    .loading-spinner {
+      width: 36px; height: 36px; margin: 0 auto;
+      border: 3px solid #dee2e6;
+      border-top-color: #1a3a5c;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
 
     footer {
       text-align: center;

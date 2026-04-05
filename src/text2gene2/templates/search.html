@@ -1,241 +1,373 @@
 {% extends "base.html" %}
-{% block title %}{{ hgvs }} — text2gene{% endblock %}
+{% block title %}{{ hgvs or "Search" }} — text2gene{% endblock %}
 
 {% block content %}
-<form action="/search" method="get">
+<form id="search-form" action="/search" method="get">
   <div class="search-box" style="margin-top:1.5rem;">
-    <input type="text" name="hgvs" value="{{ hgvs }}" autofocus>
-    <button type="submit">Search</button>
+    <input type="text" name="hgvs" value="{{ hgvs }}" autofocus id="hgvs-input">
+    <button type="submit" id="search-btn">Search</button>
   </div>
 </form>
 
-{% if error %}
-<div class="error-box">
-  <strong>Error:</strong> {{ error }}
+<div id="error-box" class="error-box" style="display:none;"></div>
+
+{# ── LVG section (populated by SSE) ─────────────────────────────── #}
+<div id="lvg-section" style="display:none;" class="card lvg-section" style="margin-top:1rem;"></div>
+
+{# ── Expansion section ───────────────────────────────────────────── #}
+<div id="expansion-section" style="display:none;"></div>
+
+{# ── Source summary cards ────────────────────────────────────────── #}
+<div id="sources-section" style="display:none;">
+  <div id="source-cards" style="display:flex; gap:0.75rem; margin:1rem 0; flex-wrap:wrap;"></div>
 </div>
-{% endif %}
 
-{% if result %}
-  {# ── LVG summary ──────────────────────────────────────────────────── #}
-  {% if result.lvg %}
-  <div class="card lvg-section" style="margin-top:1rem;">
-    <strong>Variant expansion</strong>
-    {% if result.lvg.gene_symbol %}
-      &mdash; <strong>{{ result.lvg.gene_symbol }}</strong>
-    {% endif %}
-    {% if result.lvg.rsids %}
-      &mdash; {{ result.lvg.rsids | join(", ") }}
-    {% endif %}
-    <div style="margin-top:0.5rem; display:flex; flex-wrap:wrap; gap:0.4rem;">
-      {% for h in result.lvg.all_hgvs %}
-        <code>{{ h }}</code>
-      {% endfor %}
-    </div>
-    {% if result.lvg.warnings %}
-    <div style="margin-top:0.5rem; color:#dc6815;">
-      {% for w in result.lvg.warnings %}<div>{{ w }}</div>{% endfor %}
-    </div>
-    {% endif %}
+{# ── Loading indicator ──────────────────────────────────────────── #}
+<div id="loading" style="display:none; text-align:center; padding:2rem;">
+  <div class="loading-spinner"></div>
+  <div id="loading-status" style="margin-top:0.75rem; font-size:0.85rem; color:#6c757d;">
+    Expanding variant...
   </div>
-  {% endif %}
+</div>
 
-  {# ── Query expansion detail ────────────────────────────────────────── #}
-  {% if expansion %}
-  <details class="card" style="margin-top:0.5rem; cursor:pointer;">
-    <summary style="font-size:0.85rem; font-weight:600; color:#1a3a5c;">
-      Query expansion
-      <span style="font-weight:400; color:#6c757d;">
-        &mdash; {{ expansion.all_search_forms | length }} search forms
-        {% if gene_synonyms and gene_synonyms | length > 1 %}
-          across {{ gene_synonyms | length }} gene names
-        {% endif %}
-      </span>
-    </summary>
-    <div style="margin-top:0.75rem; font-size:0.82rem;">
+{# ── Results ─────────────────────────────────────────────────────── #}
+<div id="results-section" style="display:none;"></div>
 
-      {% if gene_synonyms and gene_synonyms | length > 1 %}
-      <div style="margin-bottom:0.6rem;">
-        <span style="color:#6c757d; font-weight:600;">Gene names:</span>
-        {% for syn in gene_synonyms %}
-          <code style="{% if loop.first %}font-weight:700;{% endif %}">{{ syn }}</code>
-        {% endfor %}
-      </div>
-      {% endif %}
-
-      {% if expansion.protein_short %}
-      <div style="margin-bottom:0.4rem;">
-        <span class="expand-label">Protein</span>
-        {% for p in expansion.protein_short %}<code>{{ p }}</code> {% endfor %}
-        {% for p in expansion.protein_1letter %}<code class="expand-slang">{{ p }}</code> {% endfor %}
-      </div>
-      {% endif %}
-
-      {% if expansion.coding_short %}
-      <div style="margin-bottom:0.4rem;">
-        <span class="expand-label">Coding</span>
-        {% for c in expansion.coding_short %}<code>{{ c }}</code> {% endfor %}
-      </div>
-      {% endif %}
-
-      {% if expansion.slang %}
-      <div style="margin-bottom:0.4rem;">
-        <span class="expand-label">Alternate notations</span>
-        {% for s in expansion.slang %}<code class="expand-slang">{{ s }}</code> {% endfor %}
-      </div>
-      {% endif %}
-
-      {% if expansion.rsids %}
-      <div style="margin-bottom:0.4rem;">
-        <span class="expand-label">rsID</span>
-        {% for r in expansion.rsids %}<code>{{ r }}</code> {% endfor %}
-      </div>
-      {% endif %}
-
-      {% if expansion.genomic_short %}
-      <div style="margin-bottom:0.4rem;">
-        <span class="expand-label">Genomic</span>
-        {% for g in expansion.genomic_short %}<code>{{ g }}</code> {% endfor %}
-      </div>
-      {% endif %}
-
-    </div>
-  </details>
-  {% endif %}
-
-  {# ── Source summary ───────────────────────────────────────────────── #}
-  <div style="display:flex; gap:0.75rem; margin:1rem 0; flex-wrap:wrap;">
-    {% for source, pmids in result.by_source.items() %}
-    <div class="card" style="padding:0.75rem 1rem; flex:1; min-width:140px;">
-      <div style="text-align:center;">
-        <div class="tag tag-{{ source }}">{{ source }}</div>
-        <div style="font-size:1.5rem; font-weight:700; margin-top:0.25rem;">{{ pmids | length }}</div>
-        <div style="font-size:0.75rem; color:#6c757d;">PMIDs</div>
-      </div>
-      {% if result.queries.get(source) %}
-      <div style="margin-top:0.5rem; font-size:0.7rem; color:#6c757d; word-break:break-all;
-                  border-top:1px solid #f1f3f5; padding-top:0.4rem;">
-        <span style="font-weight:600;">Query:</span> {{ result.queries[source] }}
-      </div>
-      {% endif %}
-    </div>
-    {% endfor %}
-    {% if result.errors %}
-    {% for source, err in result.errors.items() %}
-    <div class="card" style="padding:0.75rem 1rem; flex:1; min-width:140px; border-color:#fca5a5;">
-      <div class="tag" style="background:#fee2e2;color:#b91c1c;">{{ source }}</div>
-      <div style="font-size:0.75rem; color:#b91c1c; margin-top:0.25rem;">{{ err }}</div>
-    </div>
-    {% endfor %}
-    {% endif %}
-  </div>
-
-  {# ── Results summary bar ──────────────────────────────────────────── #}
-  {% if result.citations %}
-  <div style="display:flex; align-items:center; gap:1rem; margin-bottom:0.75rem; flex-wrap:wrap;">
-    <span style="font-size:0.9rem; font-weight:600; color:#1a3a5c;">
-      {{ result.citations | length }} unique PMIDs
-    </span>
-    {% set confirmed = result.citations | selectattr("validation_tier", "equalto", "confirmed") | list | length %}
-    {% set probable = result.citations | selectattr("validation_tier", "equalto", "probable") | list | length %}
-    {% set unverified = result.citations | length - confirmed - probable %}
-    {% if confirmed or probable %}
-    <span style="font-size:0.8rem; color:#6c757d;">
-      {% if confirmed %}<span class="tier-badge tier-confirmed">{{ confirmed }} confirmed</span>{% endif %}
-      {% if probable %}<span class="tier-badge tier-probable">{{ probable }} probable</span>{% endif %}
-      {% if unverified %}<span class="tier-badge tier-unverified">{{ unverified }} unverified</span>{% endif %}
-    </span>
-    {% endif %}
-    {% set multi_source = result.citations | selectattr("confidence", "gt", 1) | list | length %}
-    {% if multi_source %}
-    <span style="font-size:0.78rem; color:#6c757d;">
-      {{ multi_source }} found by multiple sources
-    </span>
-    {% endif %}
-  </div>
-  {% endif %}
-
-  {# ── Citation cards ───────────────────────────────────────────────── #}
-  {% if result.citations %}
-  {% for citation in result.citations %}
-  <div class="card citation-card">
-    <div class="citation-header">
-      {# Confidence dots #}
-      <span class="citation-conf" title="{{ citation.confidence }} source{{ 's' if citation.confidence != 1 }}">
-        {% for i in range(4) %}
-        <span class="confidence-bar {% if i < citation.confidence %}filled{% endif %}"></span>
-        {% endfor %}
-      </span>
-
-      {# Source badges #}
-      <span>
-        {% for src in citation.sources %}
-        <span class="source-badge tag-{{ src }}">{{ src }}</span>
-        {% endfor %}
-      </span>
-
-      {# Validation tier #}
-      {% if citation.validation_tier %}
-      <span class="tier-badge tier-{{ citation.validation_tier }}"
-            title="{% if citation.validation_tier == 'confirmed' %}Variant notation found in abstract{% elif citation.validation_tier == 'probable' %}Gene + position found in abstract{% else %}Not yet verified against abstract text{% endif %}">
-        {{ citation.validation_tier }}
-      </span>
-      {% endif %}
-
-      {# Links #}
-      <span class="citation-links">
-        <a href="https://pubmed.ncbi.nlm.nih.gov/{{ citation.pmid }}/"
-           target="_blank" rel="noopener">PubMed {{ citation.pmid }}</a>
-        {% if citation.bookshelf_id %}
-        &middot; <a href="https://www.ncbi.nlm.nih.gov/books/{{ citation.bookshelf_id }}/"
-                    target="_blank" rel="noopener">Bookshelf</a>
-        {% endif %}
-        {% if citation.pmc %}
-        &middot; <a href="https://www.ncbi.nlm.nih.gov/pmc/articles/{{ citation.pmc }}/"
-                    target="_blank" rel="noopener">PMC</a>
-        {% endif %}
-        {% if citation.doi %}
-        &middot; <a href="https://doi.org/{{ citation.doi }}"
-                    target="_blank" rel="noopener">DOI</a>
-        {% endif %}
-      </span>
-    </div>
-
-    {% if citation.title %}
-    <div class="citation-title">
-      {{ citation.title }}
-      {% if citation.bookshelf_id %}
-        <span class="tag" style="background:#fef3c7;color:#92400e;vertical-align:middle;margin-left:0.3rem;">Book</span>
-      {% endif %}
-    </div>
-    {% else %}
-    <div class="citation-title" style="color:#6c757d; font-style:italic;">PMID {{ citation.pmid }}</div>
-    {% endif %}
-
-    {% if citation.authors or citation.journal or citation.year %}
-    <div class="citation-meta">
-      {% if citation.authors %}<span>{{ citation.authors }}</span>{% endif %}
-      {% if citation.journal %}<span class="citation-journal">{{ citation.journal }}</span>{% endif %}
-      {% if citation.year %}<span>{{ citation.year }}</span>{% endif %}
-    </div>
-    {% endif %}
-
-    {% if citation.abstract_snippet %}
-    <div class="citation-abstract">{{ citation.abstract_snippet }}</div>
-    {% endif %}
-  </div>
-  {% endfor %}
-
-  {% else %}
-  <div class="card" style="text-align:center; color:#6c757d; padding:2rem;">
-    No literature found for this variant across any source.
-  </div>
-  {% endif %}
-
-{% elif not error %}
-{# Empty state #}
+{# ── Empty state ─────────────────────────────────────────────────── #}
+{% if not hgvs %}
 <div class="card" style="text-align:center; color:#6c757d; padding:2rem;">
   Enter an HGVS variant above to search.
 </div>
 {% endif %}
 
+<script>
+document.addEventListener("DOMContentLoaded", function() {
+  const hgvs = document.getElementById("hgvs-input").value.trim();
+  if (hgvs) startSearch(hgvs);
+});
+
+function startSearch(hgvs) {
+  // Show loading
+  const loading = document.getElementById("loading");
+  const loadingStatus = document.getElementById("loading-status");
+  loading.style.display = "block";
+
+  // Reset sections
+  document.getElementById("lvg-section").style.display = "none";
+  document.getElementById("expansion-section").style.display = "none";
+  document.getElementById("sources-section").style.display = "none";
+  document.getElementById("results-section").style.display = "none";
+  document.getElementById("error-box").style.display = "none";
+  document.getElementById("source-cards").innerHTML = "";
+
+  const sourcesCompleted = new Set();
+
+  const es = new EventSource("/api/v2/stream/" + encodeURIComponent(hgvs));
+
+  es.addEventListener("lvg", function(e) {
+    const lvg = JSON.parse(e.data);
+    loadingStatus.textContent = "Querying sources...";
+    renderLVG(lvg);
+  });
+
+  es.addEventListener("expansion", function(e) {
+    const exp = JSON.parse(e.data);
+    renderExpansion(exp);
+  });
+
+  es.addEventListener("source", function(e) {
+    const src = JSON.parse(e.data);
+    sourcesCompleted.add(src.source);
+    loadingStatus.textContent = `${sourcesCompleted.size}/4 sources complete...`;
+    renderSourceCard(src);
+  });
+
+  es.addEventListener("citations", function(e) {
+    const data = JSON.parse(e.data);
+    loadingStatus.textContent = "Done.";
+    renderCitations(data.citations, data.total);
+  });
+
+  es.addEventListener("error", function(e) {
+    if (e.data) {
+      const err = JSON.parse(e.data);
+      showError(err.message);
+    }
+  });
+
+  es.addEventListener("done", function(e) {
+    loading.style.display = "none";
+    es.close();
+  });
+
+  es.onerror = function() {
+    loading.style.display = "none";
+    es.close();
+  };
+}
+
+function showError(msg) {
+  const box = document.getElementById("error-box");
+  box.innerHTML = `<strong>Error:</strong> ${escapeHtml(msg)}`;
+  box.style.display = "block";
+}
+
+function renderLVG(lvg) {
+  const el = document.getElementById("lvg-section");
+  let html = "<strong>Variant expansion</strong>";
+  if (lvg.gene_symbol) html += ` &mdash; <strong>${escapeHtml(lvg.gene_symbol)}</strong>`;
+  if (lvg.rsids && lvg.rsids.length) html += ` &mdash; ${lvg.rsids.map(escapeHtml).join(", ")}`;
+
+  const allHgvs = [lvg.input_hgvs, ...lvg.hgvs_c, ...lvg.hgvs_g, ...lvg.hgvs_p, ...lvg.hgvs_n];
+  const unique = [...new Set(allHgvs.filter(Boolean))];
+  html += `<div style="margin-top:0.5rem; display:flex; flex-wrap:wrap; gap:0.4rem;">`;
+  unique.forEach(h => { html += `<code>${escapeHtml(h)}</code>`; });
+  html += `</div>`;
+
+  if (lvg.warnings && lvg.warnings.length) {
+    html += `<div style="margin-top:0.5rem; color:#dc6815;">`;
+    lvg.warnings.forEach(w => { html += `<div>${escapeHtml(w)}</div>`; });
+    html += `</div>`;
+  }
+
+  el.innerHTML = html;
+  el.style.display = "block";
+}
+
+function renderExpansion(exp) {
+  const el = document.getElementById("expansion-section");
+  const nForms = exp.all_search_forms ? exp.all_search_forms.length : 0;
+  const nGenes = exp.gene_synonyms ? exp.gene_synonyms.length : 0;
+
+  let summary = `Query expansion &mdash; ${nForms} search forms`;
+  if (nGenes > 1) summary += ` across ${nGenes} gene names`;
+
+  let body = "";
+
+  if (nGenes > 1) {
+    body += `<div style="margin-bottom:0.6rem;"><span style="color:#6c757d;font-weight:600;">Gene names:</span> `;
+    exp.gene_synonyms.forEach((s, i) => {
+      body += `<code style="${i===0?'font-weight:700;':''}">${escapeHtml(s)}</code> `;
+    });
+    body += `</div>`;
+  }
+
+  if (exp.protein_short && exp.protein_short.length) {
+    body += `<div style="margin-bottom:0.4rem;"><span class="expand-label">Protein</span>`;
+    exp.protein_short.forEach(p => { body += `<code>${escapeHtml(p)}</code> `; });
+    if (exp.protein_1letter) exp.protein_1letter.forEach(p => { body += `<code class="expand-slang">${escapeHtml(p)}</code> `; });
+    body += `</div>`;
+  }
+
+  if (exp.coding_short && exp.coding_short.length) {
+    body += `<div style="margin-bottom:0.4rem;"><span class="expand-label">Coding</span>`;
+    exp.coding_short.forEach(c => { body += `<code>${escapeHtml(c)}</code> `; });
+    body += `</div>`;
+  }
+
+  if (exp.slang && exp.slang.length) {
+    body += `<div style="margin-bottom:0.4rem;"><span class="expand-label">Alternate notations</span>`;
+    exp.slang.forEach(s => { body += `<code class="expand-slang">${escapeHtml(s)}</code> `; });
+    body += `</div>`;
+  }
+
+  if (exp.rsids && exp.rsids.length) {
+    body += `<div style="margin-bottom:0.4rem;"><span class="expand-label">rsID</span>`;
+    exp.rsids.forEach(r => { body += `<code>${escapeHtml(r)}</code> `; });
+    body += `</div>`;
+  }
+
+  if (exp.genomic_short && exp.genomic_short.length) {
+    body += `<div style="margin-bottom:0.4rem;"><span class="expand-label">Genomic</span>`;
+    exp.genomic_short.forEach(g => { body += `<code>${escapeHtml(g)}</code> `; });
+    body += `</div>`;
+  }
+
+  el.innerHTML = `
+    <details class="card" style="margin-top:0.5rem; cursor:pointer;">
+      <summary style="font-size:0.85rem; font-weight:600; color:#1a3a5c;">
+        ${summary}
+      </summary>
+      <div style="margin-top:0.75rem; font-size:0.82rem;">${body}</div>
+    </details>`;
+  el.style.display = "block";
+}
+
+const SOURCE_COLORS = {
+  litvar2:   {bg: "#e3f2fd", fg: "#1565c0"},
+  clinvar:   {bg: "#e8f5e9", fg: "#2e7d32"},
+  google:    {bg: "#fff3e0", fg: "#e65100"},
+  europepmc: {bg: "#f3e5f5", fg: "#6a1b9a"},
+};
+
+function renderSourceCard(src) {
+  const section = document.getElementById("sources-section");
+  section.style.display = "block";
+  const container = document.getElementById("source-cards");
+
+  const colors = SOURCE_COLORS[src.source] || {bg: "#f3f4f6", fg: "#374151"};
+  const isError = !!src.error && src.pmids.length === 0;
+
+  let queryHtml = "";
+  if (src.query_used) {
+    queryHtml = `
+      <details style="margin-top:0.5rem; border-top:1px solid #f1f3f5; padding-top:0.4rem;">
+        <summary style="font-size:0.7rem; color:#6c757d; cursor:pointer;">Query</summary>
+        <div style="font-size:0.65rem; color:#6c757d; word-break:break-all;
+                    margin-top:0.3rem; font-family:monospace; line-height:1.4;">
+          ${escapeHtml(src.query_used)}
+        </div>
+      </details>`;
+  }
+
+  const card = document.createElement("div");
+  card.className = "card";
+  card.style.cssText = `padding:0.75rem 1rem; flex:1; min-width:140px;${isError ? "border-color:#fca5a5;" : ""}`;
+
+  if (isError) {
+    card.innerHTML = `
+      <div style="text-align:center;">
+        <div class="tag" style="background:#fee2e2;color:#b91c1c;">${escapeHtml(src.source)}</div>
+        <div style="font-size:0.75rem; color:#b91c1c; margin-top:0.25rem;">${escapeHtml(src.error)}</div>
+      </div>`;
+  } else {
+    card.innerHTML = `
+      <div style="text-align:center;">
+        <div class="tag" style="background:${colors.bg};color:${colors.fg};">${escapeHtml(src.source)}</div>
+        <div style="font-size:1.5rem; font-weight:700; margin-top:0.25rem;">${src.pmids.length}</div>
+        <div style="font-size:0.75rem; color:#6c757d;">PMIDs</div>
+      </div>
+      ${queryHtml}`;
+  }
+
+  container.appendChild(card);
+}
+
+const TIER_STYLES = {
+  confirmed:  {bg: "#d1fae5", fg: "#065f46"},
+  probable:   {bg: "#fef3c7", fg: "#92400e"},
+  unverified: {bg: "#f3f4f6", fg: "#6b7280"},
+};
+
+function renderCitations(citations, total) {
+  const el = document.getElementById("results-section");
+
+  if (!citations || citations.length === 0) {
+    el.innerHTML = `<div class="card" style="text-align:center; color:#6c757d; padding:2rem;">
+      No literature found for this variant across any source.</div>`;
+    el.style.display = "block";
+    return;
+  }
+
+  // Summary bar
+  let confirmed = 0, probable = 0;
+  citations.forEach(c => {
+    if (c.validation_tier === "confirmed") confirmed++;
+    else if (c.validation_tier === "probable") probable++;
+  });
+  const unverified = total - confirmed - probable;
+  const multiSource = citations.filter(c => c.sources.length > 1).length;
+
+  let html = `<div style="display:flex; align-items:center; gap:1rem; margin-bottom:0.75rem; flex-wrap:wrap;">
+    <span style="font-size:0.9rem; font-weight:600; color:#1a3a5c;">${total} unique PMIDs</span>`;
+  if (confirmed || probable) {
+    html += `<span style="font-size:0.8rem; color:#6c757d;">`;
+    if (confirmed) html += `<span class="tier-badge tier-confirmed">${confirmed} confirmed</span> `;
+    if (probable) html += `<span class="tier-badge tier-probable">${probable} probable</span> `;
+    if (unverified) html += `<span class="tier-badge tier-unverified">${unverified} unverified</span>`;
+    html += `</span>`;
+  }
+  if (multiSource) html += `<span style="font-size:0.78rem; color:#6c757d;">${multiSource} found by multiple sources</span>`;
+  html += `</div>`;
+
+  // Citation cards
+  citations.forEach(c => {
+    const nSources = c.sources.length;
+    // Confidence dots
+    let dots = "";
+    for (let i = 0; i < 4; i++) {
+      dots += `<span class="confidence-bar ${i < nSources ? 'filled' : ''}"></span>`;
+    }
+
+    // Source badges
+    let badges = "";
+    c.sources.forEach(src => {
+      const colors = SOURCE_COLORS[src] || {bg: "#f3f4f6", fg: "#374151"};
+      badges += `<span class="source-badge" style="background:${colors.bg};color:${colors.fg};">${escapeHtml(src)}</span> `;
+    });
+
+    // Tier badge
+    let tierHtml = "";
+    if (c.validation_tier) {
+      const ts = TIER_STYLES[c.validation_tier] || TIER_STYLES.unverified;
+      tierHtml = `<span class="tier-badge" style="background:${ts.bg};color:${ts.fg};">${c.validation_tier}</span>`;
+    }
+
+    // Links
+    let links = `<a href="https://pubmed.ncbi.nlm.nih.gov/${c.pmid}/" target="_blank" rel="noopener">PubMed ${c.pmid}</a>`;
+    if (c.bookshelf_id) links += ` &middot; <a href="https://www.ncbi.nlm.nih.gov/books/${c.bookshelf_id}/" target="_blank" rel="noopener">Bookshelf</a>`;
+    if (c.pmc) links += ` &middot; <a href="https://www.ncbi.nlm.nih.gov/pmc/articles/${c.pmc}/" target="_blank" rel="noopener">PMC</a>`;
+    if (c.doi) links += ` &middot; <a href="https://doi.org/${c.doi}" target="_blank" rel="noopener">DOI</a>`;
+
+    // Title
+    let titleHtml;
+    if (c.title) {
+      titleHtml = `<div class="citation-title">${escapeHtml(c.title)}`;
+      if (c.bookshelf_id) titleHtml += ` <span class="tag" style="background:#fef3c7;color:#92400e;vertical-align:middle;margin-left:0.3rem;">Book</span>`;
+      titleHtml += `</div>`;
+    } else {
+      titleHtml = `<div class="citation-title" style="color:#6c757d;font-style:italic;">PMID ${c.pmid}</div>`;
+    }
+
+    // Meta
+    let metaHtml = "";
+    if (c.authors || c.journal || c.year) {
+      metaHtml = `<div class="citation-meta">`;
+      if (c.authors) metaHtml += `<span>${escapeHtml(c.authors)}</span>`;
+      if (c.journal) metaHtml += `<span class="citation-journal">${escapeHtml(c.journal)}</span>`;
+      if (c.year) metaHtml += `<span>${c.year}</span>`;
+      metaHtml += `</div>`;
+    }
+
+    // Abstract
+    let abstractHtml = "";
+    if (c.abstract_snippet) abstractHtml = `<div class="citation-abstract">${escapeHtml(c.abstract_snippet)}</div>`;
+
+    // Provenance
+    let provHtml = "";
+    if (c.found_by && Object.keys(c.found_by).length) {
+      provHtml = `<div class="citation-provenance">Found via: `;
+      for (const [src, form] of Object.entries(c.found_by)) {
+        const colors = SOURCE_COLORS[src] || {bg: "#f3f4f6", fg: "#374151"};
+        provHtml += `<span class="prov-tag" style="background:${colors.bg};color:${colors.fg};">${escapeHtml(src)}: ${escapeHtml(form)}</span> `;
+      }
+      provHtml += `</div>`;
+    }
+
+    html += `
+      <div class="card citation-card">
+        <div class="citation-header">
+          <span class="citation-conf" title="${nSources} source${nSources !== 1 ? 's' : ''}">${dots}</span>
+          <span>${badges}</span>
+          ${tierHtml}
+          <span class="citation-links">${links}</span>
+        </div>
+        ${titleHtml}
+        ${metaHtml}
+        ${abstractHtml}
+        ${provHtml}
+      </div>`;
+  });
+
+  el.innerHTML = html;
+  el.style.display = "block";
+}
+
+function escapeHtml(str) {
+  if (!str) return "";
+  const div = document.createElement("div");
+  div.textContent = str;
+  return div.innerHTML;
+}
+</script>
 {% endblock %}

@@ -41,12 +41,18 @@ class SourceResult(BaseModel):
     error: str | None = None
     cached: bool = False
     query_used: str | None = None  # the actual query string sent to the source
+    # Per-PMID provenance: maps PMID → the specific query form that found it
+    # e.g. {12345: "rs121909660", 67890: "ACVRL1 p.Arg374Trp"}
+    pmid_provenance: dict[int, str] = Field(default_factory=dict)
 
 
 class Citation(BaseModel):
     """A single PubMed citation with source attribution."""
     pmid: int
     sources: list[Source] = Field(default_factory=list)
+    # Per-source provenance: which query form found this PMID in each source
+    # e.g. {"litvar2": "rs121909660", "europepmc": "ALK1 + R374W"}
+    found_by: dict[Source, str] = Field(default_factory=dict)
     # Populated by pipeline/enrich.py
     title: str | None = None
     authors: str | None = None
@@ -81,6 +87,7 @@ class CitationTable(BaseModel):
     @classmethod
     def from_source_results(cls, hgvs: str, lvg: LVGResult | None, results: list[SourceResult]) -> "CitationTable":
         pmid_sources: dict[int, list[Source]] = {}
+        pmid_found_by: dict[int, dict[Source, str]] = {}
         errors: dict[Source, str] = {}
         by_source: dict[Source, list[int]] = {}
 
@@ -93,9 +100,16 @@ class CitationTable(BaseModel):
                 queries[r.source] = r.query_used
             for pmid in r.pmids:
                 pmid_sources.setdefault(pmid, []).append(r.source)
+                # Carry per-PMID provenance if available
+                if pmid in r.pmid_provenance:
+                    pmid_found_by.setdefault(pmid, {})[r.source] = r.pmid_provenance[pmid]
 
         citations = [
-            Citation(pmid=pmid, sources=sources)
+            Citation(
+                pmid=pmid,
+                sources=sources,
+                found_by=pmid_found_by.get(pmid, {}),
+            )
             for pmid, sources in sorted(pmid_sources.items(), key=lambda x: -len(x[1]))
         ]
 
