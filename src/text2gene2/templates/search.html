@@ -42,7 +42,7 @@
 
 <script>
 document.addEventListener("DOMContentLoaded", function() {
-  const hgvs = "{{ hgvs | e }}";
+  const hgvs = document.getElementById("hgvs-input").value.trim();
   if (hgvs) startSearch(hgvs);
 });
 
