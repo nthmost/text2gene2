@@ -107,7 +107,7 @@
     {% for source, pmids in result.by_source.items() %}
     <div class="card" style="padding:0.75rem 1rem; flex:1; min-width:140px;">
       <div style="text-align:center;">
-        <div class="tag tag-{{ source }}">{{ source }}</div>
+        <div class="tag tag-{{ source.value }}">{{ source.value }}</div>
         <div style="font-size:1.5rem; font-weight:700; margin-top:0.25rem;">{{ pmids | length }}</div>
         <div style="font-size:0.75rem; color:#6c757d;">PMIDs</div>
       </div>
@@ -122,7 +122,7 @@
     {% if result.errors %}
     {% for source, err in result.errors.items() %}
     <div class="card" style="padding:0.75rem 1rem; flex:1; min-width:140px; border-color:#fca5a5;">
-      <div class="tag" style="background:#fee2e2;color:#b91c1c;">{{ source }}</div>
+      <div class="tag" style="background:#fee2e2;color:#b91c1c;">{{ source.value }}</div>
       <div style="font-size:0.75rem; color:#b91c1c; margin-top:0.25rem;">{{ err }}</div>
     </div>
     {% endfor %}
@@ -169,7 +169,7 @@
       {# Source badges #}
       <span>
         {% for src in citation.sources %}
-        <span class="source-badge tag-{{ src }}">{{ src }}</span>
+        <span class="source-badge tag-{{ src.value }}">{{ src.value }}</span>
         {% endfor %}
       </span>
 
@@ -227,7 +227,7 @@
     <div class="citation-provenance">
       Found via:
       {% for src, form in citation.found_by.items() %}
-        <span class="prov-tag tag-{{ src }}">{{ src }}: {{ form }}</span>
+        <span class="prov-tag tag-{{ src.value }}">{{ src.value }}: {{ form }}</span>
       {% endfor %}
     </div>
     {% endif %}

@@ -103,7 +103,7 @@ async def get_lvg(hgvs: str, use_cache: bool = True) -> LVGResult:
 
     url = f"{_BASE}/VariantValidator/variantvalidator/{_BUILD}/{hgvs}/all"
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, connect=5.0)) as client:
             resp = await client.get(url, params={"content-type": "application/json"})
             resp.raise_for_status()
             data = resp.json()
