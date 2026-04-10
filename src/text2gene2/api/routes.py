@@ -262,6 +262,20 @@ async def harvest_status():
                 cur.execute("SELECT COUNT(*) FROM lovd.harvest_log")
                 stats["totals"]["attempted"] = cur.fetchone()[0]
 
+                # PMID resolution stats
+                cur.execute("""
+                    SELECT ref_type, COUNT(*) FROM lovd.variant_ref GROUP BY ref_type
+                """)
+                stats["ref_types"] = {r[0]: r[1] for r in cur.fetchall()}
+
+                # Check if resolver is running (recent writes in last 2 min)
+                cur.execute("""
+                    SELECT COUNT(*) FROM lovd.variant_ref
+                    WHERE ref_type = 'pmid'
+                """)
+                current_pmids = cur.fetchone()[0]
+                stats["totals"]["pmids"] = current_pmids
+
                 # Error breakdown
                 cur.execute("""
                     SELECT

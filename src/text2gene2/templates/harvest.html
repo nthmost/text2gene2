@@ -25,6 +25,12 @@
 {# ── Totals ──────────────────────────────────────────────────────── #}
 <div id="totals" style="display:flex; gap:0.75rem; margin-bottom:1rem; flex-wrap:wrap;"></div>
 
+{# ── Citation resolution ──────────────────────────────────────────── #}
+<div id="resolution" class="card" style="margin-bottom:1rem;">
+  <div style="font-weight:600; margin-bottom:0.5rem;">Citation Resolution</div>
+  <div id="resolution-content" style="font-size:0.85rem; color:#6c757d;"></div>
+</div>
+
 {# ── Error summary ──────────────────────────────────────────────── #}
 <div id="errors" class="card" style="display:none; margin-bottom:1rem;"></div>
 
@@ -105,6 +111,24 @@ function render(d) {
     card("References", t.refs, "#2e7d32"),
     card("Errors", t.errors, t.errors > 0 ? "#b91c1c" : "#6b7280"),
   ].join("");
+
+  // Citation resolution
+  const resDiv = document.getElementById("resolution-content");
+  const refTypes = d.ref_types || {};
+  const pmidCount = refTypes["pmid"] || 0;
+  const doiCount = refTypes["doi"] || 0;
+  const totalRefs = pmidCount + doiCount;
+  const totalVariants = t.variants || 0;
+  const pctResolved = totalVariants > 0 ? (pmidCount / totalVariants * 100).toFixed(1) : 0;
+  resDiv.innerHTML = `
+    <div style="display:flex; gap:1.5rem; flex-wrap:wrap; margin-bottom:0.5rem;">
+      <div><span style="font-size:1.3rem; font-weight:700; color:#2e7d32;">${pmidCount}</span> PMIDs</div>
+      <div><span style="font-size:1.3rem; font-weight:700; color:#1565c0;">${doiCount}</span> DOIs</div>
+      <div style="color:#6c757d;">${pctResolved}% of variants have a PMID</div>
+    </div>
+    <div style="height:8px; background:#e9ecef; border-radius:4px; overflow:hidden; max-width:400px;">
+      <div style="height:100%; width:${pctResolved}%; background:#2e7d32; transition:width 0.5s;"></div>
+    </div>`;
 
   // Errors
   const errDiv = document.getElementById("errors");
