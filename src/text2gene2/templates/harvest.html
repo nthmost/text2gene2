@@ -59,6 +59,14 @@ async function refresh() {
 }
 
 function render(d) {
+  const t = d.totals;
+  const eligible = t.eligible || 0;
+  const attempted = t.attempted || 0;
+  const ok = t.genes || 0;
+  const errs = t.errors || 0;
+  const remaining = eligible - attempted;
+  const isComplete = remaining <= 0 && eligible > 0 && !d.running;
+
   // Running badge
   const badge = document.getElementById("running-badge");
   if (d.running) {
@@ -77,13 +85,6 @@ function render(d) {
   document.getElementById("last-refresh").textContent = "Updated " + new Date().toLocaleTimeString();
 
   // Progress bar
-  const t = d.totals;
-  const eligible = t.eligible || 0;
-  const attempted = t.attempted || 0;
-  const ok = t.genes || 0;
-  const errs = t.errors || 0;
-  const remaining = eligible - attempted;
-  const isComplete = remaining <= 0 && eligible > 0 && !d.running;
   const pc = document.getElementById("progress-container");
   if (eligible > 0) {
     pc.style.display = "block";
@@ -114,21 +115,24 @@ function render(d) {
 
   // Citation resolution
   const resDiv = document.getElementById("resolution-content");
-  const refTypes = d.ref_types || {};
-  const pmidCount = refTypes["pmid"] || 0;
-  const doiCount = refTypes["doi"] || 0;
-  const totalRefs = pmidCount + doiCount;
-  const totalVariants = t.variants || 0;
-  const pctResolved = totalVariants > 0 ? (pmidCount / totalVariants * 100).toFixed(1) : 0;
-  resDiv.innerHTML = `
-    <div style="display:flex; gap:1.5rem; flex-wrap:wrap; margin-bottom:0.5rem;">
-      <div><span style="font-size:1.3rem; font-weight:700; color:#2e7d32;">${pmidCount}</span> PMIDs</div>
-      <div><span style="font-size:1.3rem; font-weight:700; color:#1565c0;">${doiCount}</span> DOIs</div>
-      <div style="color:#6c757d;">${pctResolved}% of variants have a PMID</div>
-    </div>
-    <div style="height:8px; background:#e9ecef; border-radius:4px; overflow:hidden; max-width:400px;">
-      <div style="height:100%; width:${pctResolved}%; background:#2e7d32; transition:width 0.5s;"></div>
-    </div>`;
+  try {
+    const refTypes = d.ref_types || {};
+    const pmidCount = refTypes["pmid"] || 0;
+    const doiCount = refTypes["doi"] || 0;
+    const totalVariants = t.variants || 0;
+    const pctResolved = totalVariants > 0 ? (pmidCount / totalVariants * 100).toFixed(1) : 0;
+    resDiv.innerHTML = `
+      <div style="display:flex; gap:1.5rem; flex-wrap:wrap; margin-bottom:0.5rem;">
+        <div><span style="font-size:1.3rem; font-weight:700; color:#2e7d32;">${pmidCount}</span> PMIDs</div>
+        <div><span style="font-size:1.3rem; font-weight:700; color:#1565c0;">${doiCount}</span> DOIs</div>
+        <div style="color:#6c757d;">${pctResolved}% of variants have a PMID</div>
+      </div>
+      <div style="height:8px; background:#e9ecef; border-radius:4px; overflow:hidden; max-width:400px;">
+        <div style="height:100%; width:${pctResolved}%; background:#2e7d32; transition:width 0.5s;"></div>
+      </div>`;
+  } catch(e) {
+    resDiv.textContent = "Loading...";
+  }
 
   // Errors
   const errDiv = document.getElementById("errors");
