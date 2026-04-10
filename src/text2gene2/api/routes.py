@@ -14,7 +14,7 @@ from text2gene2.pipeline import query_variant
 from text2gene2.pipeline.enrich import enrich_citations
 from text2gene2.pipeline.expand import expand_variant, get_gene_synonyms
 from text2gene2.pipeline.validate import validate_citations
-from text2gene2.sources import ClinVarSource, EuropePMCSource, GoogleCSESource, LitVar2Source, PubTatorSource
+from text2gene2.sources import ClinVarSource, EuropePMCSource, GoogleCSESource, LitVar2Source, LOVDSource, PubTatorSource
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -68,6 +68,7 @@ _SOURCES = [
     GoogleCSESource(),
     EuropePMCSource(),
     PubTatorSource(),
+    LOVDSource(),
 ]
 
 

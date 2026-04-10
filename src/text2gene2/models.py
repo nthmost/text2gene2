@@ -10,6 +10,7 @@ class Source(str, Enum):
     GOOGLE = "google"
     EUROPEPMC = "europepmc"
     PUBTATOR = "pubtator"
+    LOVD = "lovd"
 
 
 class LVGResult(BaseModel):

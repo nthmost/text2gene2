@@ -20,7 +20,7 @@ def _get_sources():
     if _SOURCES is None:
         from text2gene2.sources import (
             ClinVarSource, EuropePMCSource, GoogleCSESource,
-            LitVar2Source, PubTatorSource,
+            LitVar2Source, LOVDSource, PubTatorSource,
         )
         _SOURCES = [
             LitVar2Source(),
@@ -28,6 +28,7 @@ def _get_sources():
             GoogleCSESource(),
             EuropePMCSource(),
             PubTatorSource(),
+            LOVDSource(),
         ]
     return _SOURCES
 
