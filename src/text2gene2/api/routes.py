@@ -183,3 +183,109 @@ async def lvg(hgvs_text: str) -> LVGResult:
 @router.get("/api/v2/health")
 async def health():
     return {"status": "ok"}
+
+
+# ── LOVD Harvest Monitor ──────────────────────────────────────────────────
+
+@router.get("/harvest", response_class=HTMLResponse)
+async def harvest_monitor(request: Request):
+    return templates.TemplateResponse(request=request, name="harvest.html", context={})
+
+
+@router.get("/api/v2/harvest/status")
+async def harvest_status():
+    """Live harvest stats from lovd.harvest_log and the log file."""
+    import asyncio
+    from text2gene2.db import get_medgen_conn, reset_medgen_conn
+
+    stats = {
+        "running": False,
+        "by_host": [],
+        "totals": {"genes": 0, "variants": 0, "refs": 0, "errors": 0},
+        "recent_log": [],
+        "error_summary": {},
+    }
+
+    # Check if harvest process is running
+    try:
+        result = await asyncio.to_thread(
+            lambda: __import__("subprocess").run(
+                ["ssh", "loki.local", "pgrep", "-f", "harvest.py"],
+                capture_output=True, timeout=5
+            )
+        )
+        stats["running"] = result.returncode == 0
+    except Exception:
+        pass
+
+    # Query harvest_log from Postgres
+    def _query_stats():
+        conn = get_medgen_conn()
+        if conn is None:
+            return
+        try:
+            with conn.cursor() as cur:
+                # Per-host summary
+                cur.execute("""
+                    SELECT source_host,
+                        COUNT(*) FILTER (WHERE error IS NULL) AS ok,
+                        COUNT(*) FILTER (WHERE error IS NOT NULL) AS errs,
+                        MAX(harvested_at) AS last_seen
+                    FROM lovd.harvest_log
+                    GROUP BY source_host
+                    ORDER BY ok DESC
+                """)
+                for host, ok, errs, last_seen in cur.fetchall():
+                    stats["by_host"].append({
+                        "host": host, "ok": ok, "errors": errs,
+                        "last_seen": str(last_seen) if last_seen else None,
+                    })
+
+                # Totals from variant tables
+                cur.execute("SELECT COUNT(*) FROM lovd.variant")
+                stats["totals"]["variants"] = cur.fetchone()[0]
+                cur.execute("SELECT COUNT(*) FROM lovd.variant_ref")
+                stats["totals"]["refs"] = cur.fetchone()[0]
+                cur.execute("SELECT COUNT(*) FROM lovd.harvest_log WHERE error IS NULL")
+                stats["totals"]["genes"] = cur.fetchone()[0]
+                cur.execute("SELECT COUNT(*) FROM lovd.harvest_log WHERE error IS NOT NULL")
+                stats["totals"]["errors"] = cur.fetchone()[0]
+
+                # Error breakdown
+                cur.execute("""
+                    SELECT
+                        CASE
+                            WHEN error LIKE '%Name or service%' THEN 'DNS failure'
+                            WHEN error LIKE '%timed out%' THEN 'Timeout'
+                            WHEN error LIKE '%403%' THEN 'HTTP 403 (auth required)'
+                            WHEN error LIKE '%404%' THEN 'HTTP 404'
+                            WHEN error LIKE '%302%' THEN 'HTTP 302 (redirect/block)'
+                            WHEN error LIKE '%SSL%' THEN 'SSL error'
+                            WHEN error LIKE '%refused%' THEN 'Connection refused'
+                            ELSE 'Other'
+                        END AS error_type,
+                        COUNT(*)
+                    FROM lovd.harvest_log WHERE error IS NOT NULL
+                    GROUP BY 1 ORDER BY 2 DESC
+                """)
+                stats["error_summary"] = {r[0]: r[1] for r in cur.fetchall()}
+        except Exception as e:
+            reset_medgen_conn()
+            stats["db_error"] = str(e)
+
+    await asyncio.to_thread(_query_stats)
+
+    # Read last N lines of harvest log
+    try:
+        result = await asyncio.to_thread(
+            lambda: __import__("subprocess").run(
+                ["ssh", "loki.local", "tail", "-20", "/var/log/medgen-stacks/harvest.log"],
+                capture_output=True, text=True, timeout=5
+            )
+        )
+        if result.returncode == 0:
+            stats["recent_log"] = [l.strip() for l in result.stdout.strip().split("\n") if l.strip()]
+    except Exception:
+        pass
+
+    return stats

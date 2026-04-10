@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% block title %}LOVD Harvest Monitor — text2gene{% endblock %}
+
+{% block content %}
+<h2 style="margin-bottom:1rem; color:#1a3a5c;">LOVD Harvest Monitor</h2>
+
+<div id="status-badge" style="margin-bottom:1rem;">
+  <span id="running-badge" style="display:inline-block; padding:0.3rem 0.8rem; border-radius:999px;
+    font-size:0.85rem; font-weight:600;"></span>
+  <span id="last-refresh" style="font-size:0.8rem; color:#6c757d; margin-left:0.5rem;"></span>
+</div>
+
+{# ── Totals ──────────────────────────────────────────────────────── #}
+<div id="totals" style="display:flex; gap:0.75rem; margin-bottom:1rem; flex-wrap:wrap;"></div>
+
+{# ── Error summary ──────────────────────────────────────────────── #}
+<div id="errors" class="card" style="display:none; margin-bottom:1rem;"></div>
+
+{# ── Per-host table ─────────────────────────────────────────────── #}
+<div id="hosts" class="card" style="margin-bottom:1rem; overflow-x:auto;"></div>
+
+{# ── Live log ────────────────────────────────────────────────────── #}
+<details open class="card" style="margin-bottom:1rem;">
+  <summary style="font-weight:600; cursor:pointer;">Live log (last 20 lines)</summary>
+  <pre id="log" style="margin-top:0.5rem; font-size:0.75rem; line-height:1.5;
+    max-height:400px; overflow-y:auto; background:#f8f9fa; padding:0.75rem;
+    border-radius:4px; white-space:pre-wrap; word-break:break-all;"></pre>
+</details>
+
+<script>
+async function refresh() {
+  try {
+    const resp = await fetch("/api/v2/harvest/status");
+    const data = await resp.json();
+    render(data);
+  } catch(e) {
+    document.getElementById("running-badge").textContent = "Error fetching status";
+    document.getElementById("running-badge").style.background = "#fee2e2";
+    document.getElementById("running-badge").style.color = "#b91c1c";
+  }
+}
+
+function render(d) {
+  // Running badge
+  const badge = document.getElementById("running-badge");
+  if (d.running) {
+    badge.textContent = "Harvest running";
+    badge.style.background = "#d1fae5";
+    badge.style.color = "#065f46";
+  } else {
+    badge.textContent = "Harvest idle";
+    badge.style.background = "#f3f4f6";
+    badge.style.color = "#6b7280";
+  }
+  document.getElementById("last-refresh").textContent = "Updated " + new Date().toLocaleTimeString();
+
+  // Totals
+  const t = d.totals;
+  document.getElementById("totals").innerHTML = [
+    card("Genes", t.genes, "#1a3a5c"),
+    card("Variants", t.variants, "#1a3a5c"),
+    card("References", t.refs, "#2e7d32"),
+    card("Errors", t.errors, t.errors > 0 ? "#b91c1c" : "#6b7280"),
+  ].join("");
+
+  // Errors
+  const errDiv = document.getElementById("errors");
+  if (d.error_summary && Object.keys(d.error_summary).length) {
+    let html = '<div style="font-weight:600; margin-bottom:0.5rem;">Error breakdown</div>';
+    for (const [type, count] of Object.entries(d.error_summary)) {
+      const color = type.includes("302") || type.includes("block") ? "#b91c1c" : "#6c757d";
+      html += `<div style="display:flex; justify-content:space-between; padding:0.2rem 0; font-size:0.85rem;">
+        <span style="color:${color};">${esc(type)}</span><span style="font-weight:600;">${count}</span></div>`;
+    }
+    errDiv.innerHTML = html;
+    errDiv.style.display = "block";
+  } else {
+    errDiv.style.display = "none";
+  }
+
+  // Per-host table
+  if (d.by_host && d.by_host.length) {
+    let html = '<table class="results"><thead><tr><th>Host</th><th>OK</th><th>Errors</th><th>Last seen</th><th>Status</th></tr></thead><tbody>';
+    for (const h of d.by_host) {
+      const status = h.errors > 0 && h.ok === 0
+        ? '<span style="color:#b91c1c;">All failed</span>'
+        : h.errors > 0
+          ? '<span style="color:#92400e;">Partial</span>'
+          : '<span style="color:#065f46;">OK</span>';
+      html += `<tr><td style="font-family:monospace; font-size:0.8rem;">${esc(h.host)}</td>
+        <td style="font-weight:600;">${h.ok}</td><td>${h.errors}</td>
+        <td style="font-size:0.8rem; color:#6c757d;">${h.last_seen || "-"}</td>
+        <td>${status}</td></tr>`;
+    }
+    html += "</tbody></table>";
+    document.getElementById("hosts").innerHTML = html;
+  }
+
+  // Log
+  if (d.recent_log && d.recent_log.length) {
+    const logEl = document.getElementById("log");
+    logEl.textContent = d.recent_log.join("\n");
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+}
+
+function card(label, value, color) {
+  return `<div class="card" style="padding:0.75rem 1rem; min-width:120px; text-align:center; flex:1;">
+    <div style="font-size:1.5rem; font-weight:700; color:${color};">${value}</div>
+    <div style="font-size:0.75rem; color:#6c757d;">${label}</div></div>`;
+}
+
+function esc(s) {
+  const d = document.createElement("div");
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+// Auto-refresh every 10 seconds
+refresh();
+setInterval(refresh, 10000);
+</script>
+{% endblock %}
